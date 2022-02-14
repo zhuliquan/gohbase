@@ -12,6 +12,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/tsuna/gohbase/auth"
 	"github.com/tsuna/gohbase/hrpc"
 	"github.com/tsuna/gohbase/pb"
 	"github.com/tsuna/gohbase/region"
@@ -63,11 +64,12 @@ func newAdminClient(zkquorum string, options ...Option) AdminClient {
 		regionLookupTimeout: region.DefaultLookupTimeout,
 		regionReadTimeout:   region.DefaultReadTimeout,
 		newRegionClientFn:   region.NewClient,
+		saslConfig:          &auth.SASLConfig{SASLType: auth.NO_SASL},
 	}
 	for _, option := range options {
 		option(c)
 	}
-	c.zkClient = zk.NewClient(zkquorum, c.zkTimeout)
+	c.zkClient = zk.NewClient(zkquorum, c.zkTimeout, c.saslConfig)
 	return c
 }
 

@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/tsuna/gohbase/auth"
 	"github.com/tsuna/gohbase/compression"
 	"github.com/tsuna/gohbase/hrpc"
 	"github.com/tsuna/gohbase/pb"
@@ -177,7 +178,7 @@ func init() {
 
 func newMockRegionClient(addr string, ctype region.ClientType, queueSize int,
 	flushInterval time.Duration, effectiveUser string,
-	readTimeout time.Duration, codec compression.Codec) hrpc.RegionClient {
+	readTimeout time.Duration, codec compression.Codec, saslCfg *auth.SASLConfig) hrpc.RegionClient {
 	m.Lock()
 	clients[addr]++
 	m.Unlock()

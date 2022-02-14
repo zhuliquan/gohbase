@@ -14,13 +14,14 @@ import (
 	"net"
 	"time"
 
+	"github.com/tsuna/gohbase/auth"
 	"github.com/tsuna/gohbase/compression"
 	"github.com/tsuna/gohbase/hrpc"
 )
 
 // NewClient creates a new RegionClient.
 func NewClient(addr string, ctype ClientType, queueSize int, flushInterval time.Duration,
-	effectiveUser string, readTimeout time.Duration, codec compression.Codec) hrpc.RegionClient {
+	effectiveUser string, readTimeout time.Duration, codec compression.Codec, saslCfg *auth.SASLConfig) hrpc.RegionClient {
 	c := &client{
 		addr:          addr,
 		ctype:         ctype,
@@ -31,6 +32,7 @@ func NewClient(addr string, ctype ClientType, queueSize int, flushInterval time.
 		rpcs:          make(chan hrpc.Call),
 		done:          make(chan struct{}),
 		sent:          make(map[uint32]hrpc.Call),
+		saslConfig:    saslCfg,
 	}
 
 	if codec != nil {
@@ -45,19 +47,19 @@ func (c *client) Dial(ctx context.Context) error {
 		var err error
 		c.conn, err = d.DialContext(ctx, "tcp", c.addr)
 		if err != nil {
-			c.fail(fmt.Errorf("failed to dial RegionServer: %s", err))
+			c.fail(fmt.Errorf("failed to dial RegionServer: %s, err: %s", c.addr, err))
 			return
 		}
 
 		// time out send hello if it take long
 		if deadline, ok := ctx.Deadline(); ok {
 			if err = c.conn.SetWriteDeadline(deadline); err != nil {
-				c.fail(fmt.Errorf("failed to set write deadline: %s", err))
+				c.fail(fmt.Errorf("failed to set write deadline, RegionSerer: %s, err: %s", c.addr, err))
 				return
 			}
 		}
 		if err := c.sendHello(); err != nil {
-			c.fail(fmt.Errorf("failed to send hello to RegionServer: %s", err))
+			c.fail(fmt.Errorf("failed to send hello to RegionServer: %s, err: %s", c.addr, err))
 			return
 		}
 		// reset write deadline

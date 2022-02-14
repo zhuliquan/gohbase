@@ -53,7 +53,7 @@ func (rcc *clientRegionCache) put(addr string, r hrpc.RegionInfo,
 	rcc.regions[c] = map[hrpc.RegionInfo]struct{}{r: struct{}{}}
 	rcc.m.Unlock()
 
-	log.WithField("client", c).Info("added new region client")
+	log.WithField("client", c).Infof("added new region client, addr: %s", addr)
 	return c
 }
 

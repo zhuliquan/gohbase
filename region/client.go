@@ -23,11 +23,13 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
+	"github.com/tsuna/gohbase/auth"
 	"github.com/tsuna/gohbase/hrpc"
 	"github.com/tsuna/gohbase/internal/observability"
 	"github.com/tsuna/gohbase/pb"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/runtime/protoimpl"
 )
 
 // ClientType is a type alias to represent the type of this region client
@@ -199,6 +201,9 @@ type client struct {
 
 	// compressor for cellblocks. if nil, then no compression
 	compressor *compressor
+
+	// parameter for kerberos auth
+	saslConfig *auth.SASLConfig
 }
 
 // QueueRPC will add an rpc call to the queue for processing by the writer goroutine
@@ -269,6 +274,7 @@ func (c *client) fail(err error) {
 			log.WithFields(log.Fields{
 				"client": c,
 				"err":    err,
+				"addr":   c.addr,
 			}).Error("error occured, closing region client")
 		}
 
@@ -300,6 +306,7 @@ func (c *client) failSentRPCs() {
 	log.WithFields(log.Fields{
 		"client": c,
 		"count":  len(sent),
+		"addr":   c.addr,
 	}).Debug("failing awaiting RPCs")
 
 	// send error to awaiting rpcs
@@ -534,13 +541,15 @@ func (c *client) receive() (err error) {
 	}
 
 	if header.CallId == nil {
+		log.Warnf(protoimpl.X.MessageStringOf(header.Exception))
 		return ErrMissingCallID
 	}
 
 	callID := *header.CallId
 	rpc := c.unregisterRPC(callID)
 	if rpc == nil {
-		return ServerError{fmt.Errorf("got a response with an unexpected call ID: %d", callID)}
+		log.Warnf("got a response with an unexpected call ID: %d, message: %v", callID, protoimpl.X.MessageStringOf(header.Exception))
+		return ServerError{fmt.Errorf("got a response with an unexpected call ID: %d, message: %v", callID, protoimpl.X.MessageStringOf(header.Exception))}
 	}
 	if err := c.inFlightDown(); err != nil {
 		return ServerError{err}
@@ -630,7 +639,13 @@ func (c *client) readFully(buf []byte) error {
 	return err
 }
 
-// sendHello sends the "hello" message needed when opening a new connection.
+/* sendHello sends the "hello" message needed when opening a new connection.
+* 1. Setup connection
+* 2. Define input and output streams
+* 3. Write the preamble (const header below)
+* 4. if(useSasl) Create sasl connection
+* 5. Send connection header
+ */
 func (c *client) sendHello() error {
 	connHeader := &pb.ConnectionHeader{
 		UserInfo: &pb.UserInformation{
@@ -648,13 +663,45 @@ func (c *client) sendHello() error {
 		return fmt.Errorf("failed to marshal connection header: %s", err)
 	}
 
-	const header = "HBas\x00\x50" // \x50 = Simple Auth.
-	buf := make([]byte, 0, len(header)+4+len(data))
-	buf = append(buf, header...)
-	buf = buf[:len(header)+4]
-	binary.BigEndian.PutUint32(buf[6:], uint32(len(data)))
-	buf = append(buf, data...)
-	return c.write(buf)
+	if c.saslConfig.SASLType == auth.KERBEROS {
+		// Write the preamble
+		const header = "HBas\x00\x51" // \x51 = Kerberos Auth
+		if err := c.write([]byte(header)); err != nil {
+			log.Errorf("failed to write preamble header, err: %s", err)
+			return fmt.Errorf("failed to write preamble header, err: %s", err)
+		}
+
+		// Construct SPN using serviceName and host
+		// SPN format: <SERVICE>/<FQDN>
+		host := strings.SplitN(c.addr, ":", 2)[0] // Strip port part
+		var krbAuth = &auth.KerberosAuth{
+			Config: c.saslConfig.KerberosConfig,
+			SPN:    fmt.Sprintf("hbase/%s", host),
+		}
+
+		if err := krbAuth.Authorize(c.conn); err != nil {
+			log.Errorf("hbase service: %s failed to kerberos authorize, err: %s", c.addr, err)
+			return fmt.Errorf("failed to authorize, err: %s", err)
+		} else {
+			log.Debugf("hbase service: %s kerberos authorize successfully", c.addr)
+		}
+		var buf = make([]byte, 4)
+		binary.BigEndian.PutUint32(buf[:], uint32(len(data)))
+		buf = append(buf, data...)
+		if err := c.write(buf); err != nil {
+			log.Errorf("faild to write conn header, err: %s", err)
+			return fmt.Errorf("faild to write conn header, err: %s", err)
+		}
+		return nil
+	} else {
+		const header = "HBas\x00\x50" // \x50 = Simple Auth.
+		buf := make([]byte, 0, len(header)+4+len(data))
+		buf = append(buf, header...)
+		buf = buf[:len(header)+4]
+		binary.BigEndian.PutUint32(buf[6:], uint32(len(data)))
+		buf = append(buf, data...)
+		return c.write(buf)
+	}
 }
 
 // send sends an RPC out to the wire.

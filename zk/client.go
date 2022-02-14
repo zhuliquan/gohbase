@@ -16,8 +16,9 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/go-zookeeper/zk"
+	"github.com/tsuna/gohbase/auth"
 	"github.com/tsuna/gohbase/pb"
+	"github.com/zhuliquan/zk"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -58,19 +59,40 @@ type Client interface {
 type client struct {
 	zks            []string
 	sessionTimeout time.Duration
+	saslConfig     *auth.SASLConfig
+}
+
+func convertToZkSASL(authCfg *auth.SASLConfig) *zk.SASLConfig {
+	switch authCfg.SASLType {
+	case auth.KERBEROS:
+		return &zk.SASLConfig{
+			SASLType: zk.KERBEROS,
+			KerberosConfig: &zk.KerberosConfig{
+				Username:    authCfg.KerberosConfig.Username,
+				Password:    authCfg.KerberosConfig.Password,
+				KeytabPath:  authCfg.KerberosConfig.KeytabPath,
+				KrbCfgPath:  authCfg.KerberosConfig.KrbCfgPath,
+				Realm:       authCfg.KerberosConfig.Realm,
+				ServiceName: "zookeeper",
+			},
+		}
+	default:
+		return &zk.SASLConfig{SASLType: zk.NO_SASL}
+	}
 }
 
 // NewClient establishes connection to zookeeper and returns the client
-func NewClient(zkquorum string, st time.Duration) Client {
+func NewClient(zkquorum string, st time.Duration, cfg *auth.SASLConfig) Client {
 	return &client{
 		zks:            strings.Split(zkquorum, ","),
 		sessionTimeout: st,
+		saslConfig:     cfg,
 	}
 }
 
 // LocateResource returns address of the server for the specified resource.
 func (c *client) LocateResource(resource ResourceName) (string, error) {
-	conn, _, err := zk.Connect(c.zks, c.sessionTimeout)
+	conn, _, err := zk.Connect(c.zks, c.sessionTimeout, zk.WithSASLConfig(convertToZkSASL(c.saslConfig)))
 	if err != nil {
 		return "", fmt.Errorf("error connecting to ZooKeeper at %v: %s", c.zks, err)
 	}

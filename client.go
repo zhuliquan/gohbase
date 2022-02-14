@@ -12,6 +12,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/tsuna/gohbase/auth"
 	"github.com/tsuna/gohbase/compression"
 	"github.com/tsuna/gohbase/hrpc"
 	"github.com/tsuna/gohbase/pb"
@@ -94,9 +95,12 @@ type client struct {
 	closeOnce sync.Once
 
 	newRegionClientFn func(string, region.ClientType, int, time.Duration,
-		string, time.Duration, compression.Codec) hrpc.RegionClient
+		string, time.Duration, compression.Codec, *auth.SASLConfig) hrpc.RegionClient
 
 	compressionCodec compression.Codec
+
+	// sasl config
+	saslConfig *auth.SASLConfig
 }
 
 // NewClient creates a new HBase client.
@@ -130,6 +134,7 @@ func newClient(zkquorum string, options ...Option) *client {
 		regionReadTimeout:   region.DefaultReadTimeout,
 		done:                make(chan struct{}),
 		newRegionClientFn:   region.NewClient,
+		saslConfig:          &auth.SASLConfig{SASLType: auth.NO_SASL},
 	}
 	for _, option := range options {
 		option(c)
@@ -137,7 +142,7 @@ func newClient(zkquorum string, options ...Option) *client {
 
 	//Have to create the zkClient after the Options have been set
 	//since the zkTimeout could be changed as an option
-	c.zkClient = zk.NewClient(zkquorum, c.zkTimeout)
+	c.zkClient = zk.NewClient(zkquorum, c.zkTimeout, c.saslConfig)
 
 	return c
 }
@@ -199,6 +204,16 @@ func FlushInterval(interval time.Duration) Option {
 func CompressionCodec(codec string) Option {
 	return func(c *client) {
 		c.compressionCodec = compression.New(codec)
+	}
+}
+
+// WithKerberos will return an option
+func KerberosAuth(krbCfg *auth.KerberosConfig) Option {
+	return func(c *client) {
+		c.saslConfig = &auth.SASLConfig{
+			SASLType:       auth.KERBEROS,
+			KerberosConfig: krbCfg,
+		}
 	}
 }
 
