@@ -18,7 +18,7 @@ import (
 
 	"github.com/tsuna/gohbase/auth"
 	"github.com/tsuna/gohbase/pb"
-	"github.com/zhuliquan/zk"
+	"github.com/go-zookeeper/zk"
 	"google.golang.org/protobuf/proto"
 )
 

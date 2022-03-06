@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
+	"github.com/tsuna/gohbase/auth"
 	"github.com/tsuna/gohbase/hrpc"
 	"github.com/tsuna/gohbase/pb"
 	"github.com/tsuna/gohbase/test"
@@ -74,6 +75,7 @@ func TestSendHello(t *testing.T) {
 		conn:          mockConn,
 		effectiveUser: "root",
 		ctype:         RegionClient,
+		saslConfig:    &auth.SASLConfig{SASLType: auth.NO_SASL},
 	}
 
 	// check if it's sending the right "hello" for RegionClient
