@@ -57,9 +57,17 @@ func (c *client) getRegionForRpc(rpc hrpc.Call) (hrpc.RegionInfo, error) {
 	for i := 0; i < maxFindRegionTries; i++ {
 		// Check the cache for a region that can handle this request
 		if reg := c.getRegionFromCache(rpc.Table(), rpc.Key()); reg != nil {
+			log.WithFields(log.Fields{
+				"table": string(rpc.Table()),
+				"key":   string(rpc.Key()),
+			}).Debug("get region from cache")
 			return reg, nil
 		}
 
+		log.WithFields(log.Fields{
+			"table": string(rpc.Table()),
+			"key":   string(rpc.Key()),
+		}).Debug("don't get region from cache")
 		if reg, err := c.findRegion(rpc.Context(), rpc.Table(), rpc.Key()); reg != nil {
 			return reg, nil
 		} else if err != nil {
@@ -224,12 +232,18 @@ func (c *client) lookupRegion(ctx context.Context,
 			log.WithField("resource", zk.Master).Debug("looking up master")
 
 			addr, err = c.zkLookup(lookupCtx, zk.Master)
+			if err != nil {
+				err = fmt.Errorf("failed to zk loopup, err: %s", err)
+			}
 			cancel()
 			reg = c.adminRegionInfo
 		} else if bytes.Equal(table, metaTableName) {
 			log.WithField("resource", zk.Meta).Debug("looking up region server of hbase:meta")
 
 			addr, err = c.zkLookup(lookupCtx, zk.Meta)
+			if err != nil {
+				err = fmt.Errorf("failed to zk lookup, err: %s", err)
+			}
 			cancel()
 			reg = c.metaRegionInfo
 		} else {
@@ -250,6 +264,9 @@ func (c *client) lookupRegion(ctx context.Context,
 				return nil, "", err
 			} else if err == ErrClientClosed {
 				return nil, "", err
+			}
+			if err != nil {
+				err = fmt.Errorf("failed to meta lookup, err: %s", err)
 			}
 		}
 		if err == nil {
@@ -273,7 +290,7 @@ func (c *client) lookupRegion(ctx context.Context,
 		// This will be hit if there was an error locating the region
 		backoff, err = sleepAndIncreaseBackoff(ctx, backoff)
 		if err != nil {
-			return nil, "", err
+			return nil, "", fmt.Errorf("failed to sleep and increase backoff, err: %s", err)
 		}
 	}
 }
@@ -366,6 +383,7 @@ func (c *client) metaLookup(ctx context.Context,
 		hrpc.CloseScanner(),
 		hrpc.NumberOfRows(1))
 	if err != nil {
+		log.WithFields(log.Fields{"table": string(table), "key": string(key), "err": err}).Error("failed to create region search key")
 		return nil, "", err
 	}
 
@@ -375,11 +393,13 @@ func (c *client) metaLookup(ctx context.Context,
 		return nil, "", TableNotFound
 	}
 	if err != nil {
+		log.WithFields(log.Fields{"table": string(table), "key": string(key), "err": err}).Error("failed to scan meta table")
 		return nil, "", err
 	}
 
 	reg, addr, err := region.ParseRegionInfo(resp)
 	if err != nil {
+		log.WithFields(log.Fields{"table": string(table), "key": string(key), "err": err}).Error("failed to parse region info")
 		return nil, "", err
 	}
 	if !bytes.Equal(table, fullyQualifiedTable(reg)) {

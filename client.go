@@ -227,6 +227,7 @@ func (c *client) Close() {
 			}
 		}
 		c.clients.closeAll()
+		c.zkClient.Close()
 	})
 }
 
