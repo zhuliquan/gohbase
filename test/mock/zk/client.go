@@ -43,6 +43,8 @@ func (m *MockClient) LocateResource(arg0 zk.ResourceName) (string, error) {
 	return ret0, ret1
 }
 
+func (m *MockClient) Close() {}
+
 // LocateResource indicates an expected call of LocateResource.
 func (mr *MockClientMockRecorder) LocateResource(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
