@@ -48,3 +48,5 @@ func (mr *MockClientMockRecorder) LocateResource(arg0 interface{}) *gomock.Call 
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LocateResource", reflect.TypeOf((*MockClient)(nil).LocateResource), arg0)
 }
+
+func (mr *MockClientMockRecorder) Close() {}
