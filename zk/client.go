@@ -16,9 +16,9 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/go-zookeeper/zk"
 	"github.com/tsuna/gohbase/auth"
 	"github.com/tsuna/gohbase/pb"
+	"github.com/go-zookeeper/zk"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -54,14 +54,12 @@ const (
 // Client is an interface of client that retrieves meta infomation from zookeeper
 type Client interface {
 	LocateResource(ResourceName) (string, error)
-	Close()
 }
 
 type client struct {
 	zks            []string
 	sessionTimeout time.Duration
 	saslConfig     *auth.SASLConfig
-	zkConn         *zk.Conn
 }
 
 func convertToZkSASL(authCfg *auth.SASLConfig) *zk.SASLConfig {
@@ -85,34 +83,22 @@ func convertToZkSASL(authCfg *auth.SASLConfig) *zk.SASLConfig {
 
 // NewClient establishes connection to zookeeper and returns the client
 func NewClient(zkquorum string, st time.Duration, cfg *auth.SASLConfig) Client {
-	var c = &client{
+	return &client{
 		zks:            strings.Split(zkquorum, ","),
 		sessionTimeout: st,
 		saslConfig:     cfg,
 	}
-	if conn, _, err := zk.Connect(c.zks, c.sessionTimeout, zk.WithSASLConfig(convertToZkSASL(c.saslConfig))); err == nil {
-		c.zkConn = conn
-	} else {
-		c.zkConn = nil
-	}
-	return c
-}
-
-func (c *client) Close() {
-	c.zkConn.Close()
 }
 
 // LocateResource returns address of the server for the specified resource.
 func (c *client) LocateResource(resource ResourceName) (string, error) {
-	if c.zkConn == nil {
-		conn, _, err := zk.Connect(c.zks, c.sessionTimeout, zk.WithSASLConfig(convertToZkSASL(c.saslConfig)))
-		if err != nil {
-			return "", fmt.Errorf("error connecting to ZooKeeper at %v: %s", c.zks, err)
-		}
-		c.zkConn = conn
+	conn, _, err := zk.Connect(c.zks, c.sessionTimeout, zk.WithSASLConfig(convertToZkSASL(c.saslConfig)))
+	if err != nil {
+		return "", fmt.Errorf("error connecting to ZooKeeper at %v: %s", c.zks, err)
 	}
+	defer conn.Close()
 
-	buf, _, err := c.zkConn.Get(string(resource))
+	buf, _, err := conn.Get(string(resource))
 	if err != nil {
 		return "", fmt.Errorf("failed to read the %s znode: %s", resource, err)
 	}
